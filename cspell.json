@@ -6,9 +6,11 @@
     "words": [
         "dotenv",
         "eventsub",
+        "forsen",
         "pleaseendmyloniness",
         "PRIVMSG",
         "serde",
+        "splitn",
         "tungstenite"
     ],
     "ignoreWords": [],
