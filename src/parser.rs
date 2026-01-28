@@ -50,3 +50,11 @@ pub fn parse_twitch_message(raw: &str) -> Option<TwitchMessage> {
         message,
     })
 }
+
+pub fn user_badges(tags: &HashMap<String, String>) -> Vec<String> {
+    tags.get("badges")
+        .unwrap_or(&String::new())
+        .split(',')
+        .filter_map(|badge| badge.split_once('/').map(|(name, _)| format!("{}", name)))
+        .collect()
+}

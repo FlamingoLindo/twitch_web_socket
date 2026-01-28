@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 mod parser;
-use crate::parser::parse_twitch_message;
+use crate::parser::{parse_twitch_message, user_badges};
 
 #[tokio::main]
 async fn main() {
@@ -40,6 +40,9 @@ async fn main() {
                                 .color(user_color.as_str()),
                             msg.message
                         );
+
+                        let badges = user_badges(&msg.tags);
+                        println!("{:?}", badges);
                     }
                 }
 
