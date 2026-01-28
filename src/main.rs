@@ -1,3 +1,4 @@
+use chrono::prelude::*;
 use colored::*;
 use dotenv::dotenv;
 use futures_util::{
@@ -7,7 +8,6 @@ use futures_util::{
 use std::env;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
-
 mod parser;
 use crate::parser::{parse_twitch_message, user_badges};
 
@@ -43,6 +43,9 @@ async fn main() {
 
                         let badges = user_badges(&msg.tags);
                         println!("{:?}", badges);
+
+                        let local_time = Local::now();
+                        println!("{}", local_time.format("%H:%M"));
                     }
                 }
 
