@@ -18,7 +18,7 @@ async fn main() {
     connect_to_twitch(&mut conn).await;
 
     while let Some(message) = conn.read.next().await {
-        println!("{:?}", message);
+        // println!("{:?}", message);
         match message {
             Ok(Message::Text(text)) => {
                 for line in text.lines() {
@@ -29,9 +29,12 @@ async fn main() {
 
                         // println!("Command: {}", msg.command);
 
-                        let default_color = "#ffffff".to_string();
+                        // Set default values
+                        let default_color = "#555555".to_string();
                         let user_color = msg.tags.get("color").unwrap_or(&default_color);
                         let default_name = "Guest".to_string();
+
+                        // Print user and its message
                         println!(
                             "{}: {}",
                             msg.tags
@@ -41,9 +44,11 @@ async fn main() {
                             msg.message
                         );
 
+                        // Prints string array of user's badges
                         let badges = user_badges(&msg.tags);
                         println!("{:?}", badges);
 
+                        // Prints current time when message was sent (from users system time)
                         let local_time = Local::now();
                         println!("{}", local_time.format("%H:%M"));
                     }
@@ -91,7 +96,7 @@ async fn set_env() -> TwitchConnection {
 
     let oauth_token = env::var("TOKEN").expect("TOKEN not found in environment");
     let nickname = env::var("NICKNAME").expect("NICKNAME not found in environment");
-    let channel = "pleaseendmyloniness".to_string();
+    let channel = "forsen".to_string();
 
     TwitchConnection {
         write,
