@@ -24,15 +24,15 @@ badges = driver.find_elements(By.CSS_SELECTOR, "a.relative")
 
 for i, badge in enumerate(badges, 1):
     img = badge.find_element(By.CSS_SELECTOR, "img")
-    img_src = img.get_attribute("src")
-    img_alt = img.get_attribute("alt")
+    img_src = img.get_attribute("src") or ""
+    img_alt = img.get_attribute("alt") or ""
 
     img_alt = img_alt.lower()
-    img_alt = img_alt.replace(' ', '_')
-    img_alt = img_alt.replace('-', '_')
-    img_alt = re.sub(r'[^a-z0-9_]', '', img_alt)
-    img_alt = re.sub(r'_+', '_', img_alt)
-    img_alt = img_alt.strip('_')
+    img_alt = img_alt.replace(' ', '')
+    # img_alt = img_alt.replace('-', '_')
+    # img_alt = re.sub(r'[^a-z0-9_]', '', img_alt)
+    # img_alt = re.sub(r'_+', '_', img_alt)
+    # img_alt = img_alt.strip('_')
 
     img_src = re.sub(r'/\d+$', '/{SIZE}', img_src)
 
