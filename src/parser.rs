@@ -3,9 +3,9 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct TwitchMessage {
     pub tags: HashMap<String, String>,
-    pub prefix: String,
-    pub command: String,
-    pub channel: String,
+    pub _prefix: String,
+    pub _command: String,
+    pub _channel: String,
     pub message: String,
 }
 
@@ -39,14 +39,19 @@ pub fn parse_twitch_message(raw: &str) -> Option<TwitchMessage> {
     // Parse channel
     let channel = parts.next()?.to_string();
 
-    let message_part = parts.collect::<Vec<&str>>().join(" ");
-    let message = message_part.trim_start_matches(':').to_string();
+    // Find the message by locating the last ':' which starts the message content
+    // IRC format: @tags :prefix PRIVMSG #channel :message
+    let message = if let Some(colon_pos) = raw.rfind(" :") {
+        raw[colon_pos + 2..].to_string()
+    } else {
+        String::new()
+    };
 
     Some(TwitchMessage {
         tags,
-        prefix,
-        command,
-        channel,
+        _prefix: prefix,
+        _command: command,
+        _channel: channel,
         message,
     })
 }

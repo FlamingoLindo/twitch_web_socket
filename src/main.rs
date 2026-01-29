@@ -1,16 +1,22 @@
 use chrono::prelude::*;
 use colored::*;
-use dotenv::dotenv;
 use futures_util::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
 };
-use std::{env, error::Error, fs::File, io::BufReader, path::Path};
+use std::{
+    error::Error,
+    fs::File,
+    io::{BufReader, Write},
+    path::Path,
+};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 mod parser;
 use crate::parser::{parse_twitch_message, user_badges};
-use serde::Deserialize;
+use config::{Config, ConfigError};
+use serde::{Deserialize, Serialize};
+use std::io;
 
 #[tokio::main]
 async fn main() {
@@ -80,7 +86,7 @@ async fn main() {
                 break;
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("{}", format!("Error: {}", e).red());
                 break;
             }
             _ => {}
@@ -88,6 +94,7 @@ async fn main() {
     }
 }
 
+// START-UP
 struct TwitchConnection {
     write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -97,17 +104,24 @@ struct TwitchConnection {
 }
 
 async fn set_env() -> TwitchConnection {
-    dotenv().ok();
-    let url = env::var("URL").expect("URL not found in environment");
+    // Load settings
+    let settings = load_twitch_acc_settings();
+
+    // Load URL from settings
+    let url = settings.url;
     println!("{}", "Connecting to websocket...".yellow());
 
+    // Connect to Twitch WebSocket
     let (ws_stream, _) = connect_async(url).await.expect("Failed to connect!");
     println!("{}", "Connected!".green());
 
+    // Split the WebSocket stream into write and read halves
     let (write, read) = ws_stream.split();
 
-    let oauth_token = env::var("TOKEN").expect("TOKEN not found in environment");
-    let nickname = env::var("NICKNAME").expect("NICKNAME not found in environment");
+    // Create TwitchConnection struct
+    let oauth_token = settings.token;
+    let nickname = settings.nickname;
+    // TODO add into settings
     let channel = "pleaseendmyloniness".to_string();
 
     TwitchConnection {
@@ -120,6 +134,7 @@ async fn set_env() -> TwitchConnection {
 }
 
 async fn connect_to_twitch(conn: &mut TwitchConnection) {
+    // Request capabilities
     conn.write
         .send(Message::Text(
             "CAP REQ :twitch.tv/tags twitch.tv/commands".into(),
@@ -127,6 +142,7 @@ async fn connect_to_twitch(conn: &mut TwitchConnection) {
         .await
         .expect("Failed to request capabilities");
 
+    // Send PASS, NICK, and JOIN commands
     conn.write
         .send(Message::Text(format!("PASS {}", conn.oauth_token).into()))
         .await
@@ -146,6 +162,7 @@ async fn connect_to_twitch(conn: &mut TwitchConnection) {
     println!("{}", "Listening for messages...".cyan());
 }
 
+// BADGES
 #[derive(Deserialize, Debug)]
 struct TwitchBadge {
     index: i64,
@@ -154,10 +171,170 @@ struct TwitchBadge {
 }
 
 fn read_user_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<TwitchBadge>, Box<dyn Error>> {
+    // Open the file
     let file = File::open(path)?;
     let reader = BufReader::new(file);
 
     let u = serde_json::from_reader(reader)?;
 
     Ok(u)
+}
+
+// CONFIGS
+#[derive(Serialize, Deserialize)]
+struct Settings {
+    nickname: String,
+    token: String,
+    url: String,
+}
+
+fn load_twitch_acc_settings() -> Settings {
+    // Check if settings file exists, create if it doesn't
+    if !Path::new("settings.toml").exists() {
+        File::create("settings.toml").expect("Failed to create settings.toml");
+    }
+
+    // Load settings from file and environment variables
+    let settings = Config::builder()
+        .add_source(config::File::with_name("settings.toml"))
+        .add_source(config::Environment::with_prefix("APP"))
+        .build()
+        .unwrap();
+
+    let mut needs_save = false;
+
+    // Get URL, use default if not found
+    let url = match settings.get::<String>("url") {
+        Ok(url) => {
+            println!("URL: {}", url);
+            url
+        }
+        Err(ConfigError::NotFound(..)) => {
+            let default_url = "wss://irc-ws.chat.twitch.tv:443".to_string();
+            println!(
+                "{}",
+                format!("URL not found, using default: {}", default_url).yellow()
+            );
+            needs_save = true;
+            default_url
+        }
+        Err(e) => {
+            println!("There has been an error: {}", e);
+            "wss://irc-ws.chat.twitch.tv:443".to_string()
+        }
+    };
+
+    // Get nickname and token, prompt user if not found or empty
+    let nickname = match settings.get::<String>("nickname") {
+        Ok(nickname) => {
+            if nickname.is_empty() {
+                println!(
+                    "{}",
+                    "Nickname is empty. Please enter a valid nickname:".yellow()
+                );
+                let mut nickname = String::new();
+                loop {
+                    nickname.clear();
+                    io::stdin()
+                        .read_line(&mut nickname)
+                        .expect("Failed to read line");
+                    let trimmed = nickname.trim();
+                    if !trimmed.is_empty() {
+                        needs_save = true;
+                        break trimmed.to_string();
+                    }
+                    println!("{}", "Nickname cannot be empty. Please try again:".yellow());
+                }
+            } else {
+                nickname
+            }
+        }
+        Err(ConfigError::NotFound(..)) => {
+            println!("{}", "Nickname not found:".yellow());
+            let mut nickname = String::new();
+            loop {
+                nickname.clear();
+                io::stdin()
+                    .read_line(&mut nickname)
+                    .expect("Failed to read line");
+                let trimmed = nickname.trim();
+                if !trimmed.is_empty() {
+                    needs_save = true;
+                    break trimmed.to_string();
+                }
+                println!("{}", "Nickname cannot be empty. Please try again:".yellow());
+            }
+        }
+        Err(e) => {
+            println!("There has been an error: {}", e);
+            String::new()
+        }
+    };
+
+    let user_token = match settings.get::<String>("token") {
+        Ok(user_token) => {
+            if user_token.is_empty() {
+                println!("{}", "Token is empty. Please enter a valid token:".yellow());
+                let mut user_token = String::new();
+                loop {
+                    user_token.clear();
+                    io::stdin()
+                        .read_line(&mut user_token)
+                        .expect("Failed to read line");
+                    let trimmed = user_token.trim();
+                    if !trimmed.is_empty() {
+                        needs_save = true;
+                        break trimmed.to_string();
+                    }
+                    println!("{}", "Token cannot be empty. Please try again:".yellow());
+                }
+            } else {
+                user_token
+            }
+        }
+        Err(ConfigError::NotFound(..)) => {
+            println!("{}", "Token not found".yellow());
+            let mut user_token = String::new();
+            loop {
+                user_token.clear();
+                io::stdin()
+                    .read_line(&mut user_token)
+                    .expect("Failed to read line");
+                let trimmed = user_token.trim();
+                if !trimmed.is_empty() {
+                    needs_save = true;
+                    break trimmed.to_string();
+                }
+                println!("{}", "Token cannot be empty. Please try again:".yellow());
+            }
+        }
+        Err(e) => {
+            println!("There has been an error: {}", e);
+            String::new()
+        }
+    };
+
+    // Save settings if needed
+    if needs_save {
+        let settings_data = Settings {
+            nickname: nickname.clone(),
+            token: user_token.clone(),
+            url: url.clone(),
+        };
+
+        let toml_string = toml::to_string(&settings_data).expect("Failed to serialize settings");
+
+        let mut file = File::create("settings.toml").expect("Failed to open settings.toml");
+        file.write_all(toml_string.as_bytes())
+            .expect("Failed to write to settings.toml");
+
+        println!("Settings saved!");
+    }
+
+    // Return settings
+    Settings {
+        nickname,
+        token: user_token,
+        url,
+    }
 }
