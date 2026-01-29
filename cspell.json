@@ -7,7 +7,9 @@
     "chrono",
     "dotenv",
     "forsen",
+    "pleaseendmyloniness",
     "PRIVMSG",
+    "serde",
     "splitn",
     "tokio_tungstenite",
     "tungstenite"

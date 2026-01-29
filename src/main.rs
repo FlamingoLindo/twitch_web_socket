@@ -5,14 +5,18 @@ use futures_util::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
 };
-use std::env;
+use std::{env, error::Error, fs::File, io::BufReader, path::Path};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 mod parser;
 use crate::parser::{parse_twitch_message, user_badges};
+use serde::Deserialize;
 
 #[tokio::main]
 async fn main() {
+    // Load twitch badges
+    let twitch_badges = read_user_from_file("twitch/json/twitch_badges.json").unwrap();
+
     let mut conn = set_env().await;
 
     connect_to_twitch(&mut conn).await;
@@ -45,8 +49,16 @@ async fn main() {
                         );
 
                         // Prints string array of user's badges
-                        let badges = user_badges(&msg.tags);
-                        println!("{:?}", badges);
+                        let user_badges = user_badges(&msg.tags);
+                        // println!("{:?}", badges);
+                        for user_badge in &user_badges {
+                            if let Some(twitch_badge) =
+                                twitch_badges.iter().find(|tb| &tb.name == user_badge)
+                            {
+                                let badge_url = twitch_badge.url.replace("{SIZE}", "3");
+                                println!("Badge URL: {}", badge_url);
+                            }
+                        }
 
                         // Prints current time when message was sent (from users system time)
                         let local_time = Local::now();
@@ -96,7 +108,7 @@ async fn set_env() -> TwitchConnection {
 
     let oauth_token = env::var("TOKEN").expect("TOKEN not found in environment");
     let nickname = env::var("NICKNAME").expect("NICKNAME not found in environment");
-    let channel = "forsen".to_string();
+    let channel = "pleaseendmyloniness".to_string();
 
     TwitchConnection {
         write,
@@ -132,4 +144,20 @@ async fn connect_to_twitch(conn: &mut TwitchConnection) {
 
     println!("{}", format!("Joined #{}", conn.channel).green());
     println!("{}", "Listening for messages...".cyan());
+}
+
+#[derive(Deserialize, Debug)]
+struct TwitchBadge {
+    index: i64,
+    name: String,
+    url: String,
+}
+
+fn read_user_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<TwitchBadge>, Box<dyn Error>> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let u = serde_json::from_reader(reader)?;
+
+    Ok(u)
 }

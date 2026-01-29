@@ -41,7 +41,7 @@ for i, badge in enumerate(badges, 1):
     # print(img_src)
 
     data.append(
-        {'idex': i, 'name': img_alt, 'url': img_src})
+        {'index': i, 'name': img_alt, 'url': img_src})
 
 
 with open('twitch/json/twitch_badges.json', 'w', encoding='utf-8') as f:
