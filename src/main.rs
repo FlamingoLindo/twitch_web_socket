@@ -5,12 +5,8 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
 };
 use reqwest::StatusCode;
-use std::{
-    error::Error,
-    fs::File,
-    io::{BufReader, Write},
-    path::Path,
-};
+use std::{error::Error, fs::File, io::Write, path::Path};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 mod parser;
@@ -18,17 +14,61 @@ use crate::parser::{parse_twitch_message, user_badges};
 use config::{Config, ConfigError};
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::io::BufReader as StdBufReader;
 
 #[tokio::main]
 async fn main() {
     // Load twitch badges
-    let twitch_badges = read_user_from_file("twitch/json/twitch_badges.json").unwrap();
+    let twitch_badges = read_badge_from_file("twitch/json/twitch_badges.json").unwrap();
 
     let mut conn = set_env().await;
-
     connect_to_twitch(&mut conn).await;
 
-    while let Some(message) = conn.read.next().await {
+    let TwitchConnection {
+        mut write,
+        mut read,
+        channel,
+        ..
+    } = conn;
+
+    tokio::join!(
+        send_message(&mut write, &channel),
+        read_chat(&mut read, twitch_badges)
+    );
+}
+
+async fn send_message(
+    write: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    channel: &str,
+) {
+    let stdin = tokio::io::stdin();
+    let mut reader = BufReader::new(stdin).lines();
+
+    println!("Send message in the chat (type and press Enter):");
+
+    while let Ok(Some(line)) = reader.next_line().await {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Err(e) = write
+            .send(Message::Text(
+                format!("PRIVMSG #{} :{}", channel, trimmed).into(),
+            ))
+            .await
+        {
+            eprintln!("Failed to send message: {}", e);
+            break;
+        }
+    }
+}
+
+async fn read_chat(
+    read: &mut SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    twitch_badges: Vec<TwitchBadge>,
+) {
+    while let Some(message) = read.next().await {
         // println!("{:?}", message);
         match message {
             Ok(Message::Text(text)) => {
@@ -57,7 +97,7 @@ async fn main() {
 
                         // Prints string array of user's badges
                         let user_badges = user_badges(&msg.tags);
-                        // println!("{:?}", badges);
+                        // println!("{:?}", user_badges);
                         for user_badge in &user_badges {
                             if let Some(twitch_badge) =
                                 twitch_badges.iter().find(|tb| &tb.name == user_badge)
@@ -71,15 +111,6 @@ async fn main() {
                         let local_time = Local::now();
                         println!("{}", local_time.format("%H:%M"));
                     }
-                }
-
-                if text.contains("!hello") {
-                    conn.write
-                        .send(Message::Text(
-                            format!("PRIVMSG #{} :test!", conn.channel).into(),
-                        ))
-                        .await
-                        .expect("Failed to send message");
                 }
             }
             Ok(Message::Close(_)) => {
@@ -171,10 +202,10 @@ struct TwitchBadge {
     url: String,
 }
 
-fn read_user_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<TwitchBadge>, Box<dyn Error>> {
+fn read_badge_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<TwitchBadge>, Box<dyn Error>> {
     // Open the file
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let reader = StdBufReader::new(file);
 
     let u = serde_json::from_reader(reader)?;
 
