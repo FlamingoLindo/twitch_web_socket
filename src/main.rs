@@ -4,6 +4,7 @@ use futures_util::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
 };
+use reqwest::StatusCode;
 use std::{
     error::Error,
     fs::File,
@@ -105,7 +106,7 @@ struct TwitchConnection {
 
 async fn set_env() -> TwitchConnection {
     // Load settings
-    let settings = load_twitch_acc_settings();
+    let settings = load_twitch_acc_settings().await;
 
     // Load URL from settings
     let url = settings.url;
@@ -188,7 +189,7 @@ struct Settings {
     url: String,
 }
 
-fn load_twitch_acc_settings() -> Settings {
+async fn load_twitch_acc_settings() -> Settings {
     // Check if settings file exists, create if it doesn't
     if !Path::new("settings.toml").exists() {
         File::create("settings.toml").expect("Failed to create settings.toml");
@@ -289,7 +290,26 @@ fn load_twitch_acc_settings() -> Settings {
                     println!("{}", "Token cannot be empty. Please try again:".yellow());
                 }
             } else {
-                user_token
+                // Validate the token and prompt for a new one if invalid
+                let mut token = user_token;
+                loop {
+                    match validate_twitch_token(token.clone()).await {
+                        Ok(_) => {
+                            println!("{}", "Token validated successfully!".green());
+                            break token;
+                        }
+                        Err(e) => {
+                            eprintln!("{}", format!("Failed to validate token: {}", e).red());
+                            println!("{}", "Please enter a valid token:".yellow());
+                            token.clear();
+                            io::stdin()
+                                .read_line(&mut token)
+                                .expect("Failed to read line");
+                            token = token.trim().to_string();
+                            needs_save = true;
+                        }
+                    }
+                }
             }
         }
         Err(ConfigError::NotFound(..)) => {
@@ -337,4 +357,25 @@ fn load_twitch_acc_settings() -> Settings {
         token: user_token,
         url,
     }
+}
+
+// CHECK TOKEN
+async fn validate_twitch_token(twitch_token: String) -> Result<String, reqwest::Error> {
+    let formatted = twitch_token.trim_start_matches("oauth:");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://id.twitch.tv/oauth2/validate")
+        .header("Authorization", format!("OAuth {}", formatted))
+        .send()
+        .await?;
+
+    // Check for 401 Unauthorized
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(response.error_for_status().unwrap_err());
+    }
+
+    let text = response.text().await?;
+
+    Ok(text)
 }
