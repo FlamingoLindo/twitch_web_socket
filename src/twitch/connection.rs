@@ -34,7 +34,7 @@ pub async fn create_twitch_connection() -> TwitchConnection {
     let nickname = settings.nickname;
 
     // TODO add into settings
-    let channel = "pleaseendmyloniness".to_string();
+    let channel = "flamingo_lindo".to_string();
 
     TwitchConnection {
         write,
